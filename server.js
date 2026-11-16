@@ -3,6 +3,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const { URL } = require('url');
 
 const PORT = process.env.PORT || 3000;
@@ -73,6 +74,16 @@ function loadDb() {
   } catch (e) {
     console.error('Error loading db.json:', e.message);
   }
+  try {
+    const brPath = path.join(DATA_DIR, 'db.br');
+    if (fs.existsSync(brPath)) {
+      const parsed = JSON.parse(zlib.brotliDecompressSync(fs.readFileSync(brPath)).toString('utf8'));
+      if (parsed && Array.isArray(parsed.assets)) {
+        dbCache = parsed;
+        return dbCache;
+      }
+    }
+  } catch (e) {}
   try {
     const bundled = require('./data/db.json');
     if (bundled && Array.isArray(bundled.assets)) {
@@ -893,6 +904,18 @@ async function requestHandler(req, res) {
             return fs.createReadStream(filePath).pipe(res);
           }
         }
+        try {
+          const bundle = require('./data/photos_bundle.json');
+          if (bundle && bundle[photoId]) {
+            const buf = Buffer.from(bundle[photoId], 'base64');
+            res.writeHead(200, {
+              'Content-Type': 'image/jpeg',
+              'Content-Length': buf.length,
+              'Cache-Control': 'public, max-age=31536000, immutable'
+            });
+            return res.end(buf);
+          }
+        } catch (e) {}
         res.writeHead(404);
         return res.end('Photo not found');
       }
