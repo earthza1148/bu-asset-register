@@ -452,7 +452,7 @@ function App() {
   );
 
   // Actions
-  const handleAssetAction = async (action, asset, payload = null) => {
+  const handleAssetAction = async (action, asset, payload = null, pendingPhotos = []) => {
     setBusy(true);
     try {
       const res = await fetch('/api/data', {
@@ -467,12 +467,33 @@ function App() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'เกิดข้อผิดพลาด');
+
+      const targetId = json.id || asset?.id;
+      if ((action === 'create' || action === 'update') && targetId && Array.isArray(pendingPhotos) && pendingPhotos.length > 0) {
+        for (const p of pendingPhotos) {
+          await fetch('/api/photos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              assetId: targetId,
+              kind: p.kind || 'asset',
+              filename: p.filename,
+              dataUrl: p.dataUrl
+            })
+          });
+        }
+      }
+
       await fetchAllData();
 
       if (action === 'create') {
         setEditingAsset(null);
         setSelectedAssetId(json.id);
-        showMessage('เพิ่มทรัพย์สินเรียบร้อยแล้ว สามารถอัปโหลดรูปภาพได้ทันที');
+        showMessage(
+          pendingPhotos.length > 0
+            ? `เพิ่มทรัพย์สินและอัปโหลด ${pendingPhotos.length} รูปเรียบร้อยแล้ว`
+            : 'เพิ่มทรัพย์สินเรียบร้อยแล้ว สามารถอัปโหลดรูปภาพได้ทันที'
+        );
       } else if (action === 'update') {
         setEditingAsset(null);
         showMessage('บันทึกการแก้ไขเรียบร้อยแล้ว');
@@ -1785,11 +1806,11 @@ function App() {
           user={user}
           uniquePeople={uniquePeople}
           onClose={() => setEditingAsset(null)}
-          onSave={formData => {
+          onSave={(formData, pendingPhotos) => {
             if (editingAsset === 'new') {
-              return handleAssetAction('create', null, formData);
+              return handleAssetAction('create', null, formData, pendingPhotos);
             } else {
-              return handleAssetAction('update', editingAsset, formData);
+              return handleAssetAction('update', editingAsset, formData, pendingPhotos);
             }
           }}
         />
@@ -2989,6 +3010,36 @@ function AssetEditorModal({ asset, busy, user, uniquePeople, onClose, onSave }) 
       : { ...asset, taggingPeople: [...(asset.taggingPeople || [])] }
   );
   const [customPerson, setCustomPerson] = useState('');
+  const [pendingPhotos, setPendingPhotos] = useState([]);
+  const [photoKind, setPhotoKind] = useState('asset');
+  const [preparingPhotos, setPreparingPhotos] = useState(false);
+  const editorFileRef = useRef(null);
+  const editorCameraRef = useRef(null);
+
+  const handleSelectPhotos = async fileList => {
+    if (!fileList || !fileList.length) return;
+    const files = Array.from(fileList);
+    setPreparingPhotos(true);
+    try {
+      const items = [];
+      for (const f of files) {
+        const compressed = await compressImageToDataUrl(f);
+        items.push({
+          tempId: Math.random().toString(36).slice(2),
+          kind: photoKind,
+          filename: compressed.filename,
+          dataUrl: compressed.dataUrl
+        });
+      }
+      setPendingPhotos(prev => [...prev, ...items].slice(0, 30));
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setPreparingPhotos(false);
+      if (editorFileRef.current) editorFileRef.current.value = '';
+      if (editorCameraRef.current) editorCameraRef.current.value = '';
+    }
+  };
 
   const updateField = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
 
@@ -3018,7 +3069,7 @@ function AssetEditorModal({ asset, busy, user, uniquePeople, onClose, onSave }) 
   const handleSubmit = e => {
     e.preventDefault();
     if (!form.description.trim()) return;
-    onSave(form);
+    onSave(form, pendingPhotos);
   };
 
   return (
@@ -3199,6 +3250,83 @@ function AssetEditorModal({ asset, busy, user, uniquePeople, onClose, onSave }) 
                 className="w-full p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-white/10"
               />
             </label>
+
+            {/* Upload Photos Directly in Add / Edit Asset */}
+            <div className="sm:col-span-2 p-4 rounded-2xl bg-slate-100/80 dark:bg-slate-900/60 border border-slate-200 dark:border-white/10 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-bold flex items-center gap-1.5">
+                  <Icon name="camera" size={15} className="text-emerald-500" />
+                  <span>เพิ่มรูปภาพประกอบ ({pendingPhotos.length} รูป)</span>
+                </span>
+                <select
+                  value={photoKind}
+                  onChange={e => setPhotoKind(e.target.value)}
+                  className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10"
+                >
+                  <option value="asset">ประเภท: รูปทรัพย์สิน</option>
+                  <option value="room">ประเภท: รูปสถานที่ / ห้อง</option>
+                </select>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={preparingPhotos || busy}
+                  onClick={() => editorCameraRef.current?.click()}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-bold flex items-center gap-1.5"
+                >
+                  <Icon name="camera" size={14} />
+                  <span>ถ่ายรูป</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={preparingPhotos || busy}
+                  onClick={() => editorFileRef.current?.click()}
+                  className="px-3.5 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 font-semibold flex items-center gap-1.5"
+                >
+                  <Icon name="upload" size={14} />
+                  <span>เลือกไฟล์รูปภาพ</span>
+                </button>
+                <input
+                  ref={editorCameraRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={e => handleSelectPhotos(e.target.files)}
+                />
+                <input
+                  ref={editorFileRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={e => handleSelectPhotos(e.target.files)}
+                />
+                {preparingPhotos && <span className="text-emerald-500 font-semibold">กำลังเตรียมรูปภาพ...</span>}
+              </div>
+
+              {pendingPhotos.length > 0 && (
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 pt-1">
+                  {pendingPhotos.map(p => (
+                    <div key={p.tempId} className="relative aspect-square rounded-xl overflow-hidden bg-slate-800 border border-white/10 group">
+                      <img src={p.dataUrl} alt={p.filename} className="w-full h-full object-cover" />
+                      <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/70 text-[9px] text-white">
+                        {p.kind === 'room' ? 'สถานที่' : 'ทรัพย์สิน'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPendingPhotos(prev => prev.filter(item => item.tempId !== p.tempId))}
+                        className="absolute top-1 right-1 p-1 rounded-lg bg-rose-600 text-white opacity-90 hover:opacity-100"
+                        title="ลบรูปนี้"
+                      >
+                        <Icon name="x" size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200 dark:border-white/10">
