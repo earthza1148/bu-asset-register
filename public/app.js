@@ -775,21 +775,8 @@ function App() {
           </div>
         </div>
 
-        {/* Bottom Storage & Google User Card */}
-        <div className="p-4 border-t border-slate-200/60 dark:border-white/10 space-y-3">
-          <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs space-y-1">
-            <div className="flex items-center justify-between font-bold text-emerald-700 dark:text-emerald-300">
-              <span className="flex items-center gap-1.5">
-                <Icon name="database" size={14} />
-                <span>JSON + Photo Folder</span>
-              </span>
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {activeAssets.length} รายการ · {totalPhotosCount} รูปใน <code className="font-mono">data/photos/</code>
-            </p>
-          </div>
-
+        {/* Bottom Google User Card */}
+        <div className="p-4 border-t border-slate-200/60 dark:border-white/10">
           <button
             onClick={() => setShowAuthModal(true)}
             className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-slate-100/80 dark:bg-slate-800/70 hover:bg-slate-200/70 dark:hover:bg-slate-800 border border-slate-200/70 dark:border-white/10 transition text-left"
@@ -1949,47 +1936,79 @@ function App() {
       )}
 
       {/* FULLSCREEN PHOTO LIGHTBOX */}
-      {lightboxPhoto && (
-        <div
-          onClick={() => setLightboxPhoto(null)}
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4"
-        >
+      {lightboxPhoto && (() => {
+        const list = lightboxPhoto.photosList || (selectedAsset?.photos?.length ? selectedAsset.photos : [lightboxPhoto]);
+        const currentIdx = Math.max(0, list.findIndex(p => p.id === lightboxPhoto.id));
+        const hasMultiple = list.length > 1;
+        const goPhoto = delta => {
+          const next = list[(currentIdx + delta + list.length) % list.length];
+          setLightboxPhoto({ ...next, description: lightboxPhoto.description, photosList: list });
+        };
+        return (
           <div
-            onClick={e => e.stopPropagation()}
-            className="max-w-4xl w-full flex flex-col items-center gap-3 animate-fade-in"
+            onClick={() => setLightboxPhoto(null)}
+            className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4"
           >
-            <div className="w-full flex items-center justify-between text-white px-2">
-              <div>
-                <h4 className="text-sm font-bold">{lightboxPhoto.description || lightboxPhoto.filename}</h4>
-                <p className="text-xs text-slate-400">
-                  {lightboxPhoto.kind === 'room' ? 'รูปสถานที่' : 'รูปทรัพย์สิน'} · {lightboxPhoto.filename}
-                </p>
+            <div
+              onClick={e => e.stopPropagation()}
+              className="max-w-4xl w-full flex flex-col items-center gap-3 animate-fade-in relative"
+            >
+              <div className="w-full flex items-center justify-between text-white px-2">
+                <div>
+                  <h4 className="text-sm font-bold">{lightboxPhoto.description || lightboxPhoto.filename}</h4>
+                  <p className="text-xs text-slate-400">
+                    {lightboxPhoto.kind === 'room' ? 'รูปสถานที่' : 'รูปทรัพย์สิน'} · {lightboxPhoto.filename}
+                    {hasMultiple && ` (${currentIdx + 1} / ${list.length})`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={`/api/photos?id=${lightboxPhoto.id}`}
+                    download={lightboxPhoto.filename || `${lightboxPhoto.id}.png`}
+                    className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold flex items-center gap-1.5"
+                  >
+                    <Icon name="download" size={14} />
+                    <span>ดาวน์โหลดรูป</span>
+                  </a>
+                  <button
+                    onClick={() => setLightboxPhoto(null)}
+                    className="p-2 rounded-xl bg-white/10 hover:bg-white/20"
+                  >
+                    <Icon name="x" size={18} />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <a
-                  href={`/api/photos?id=${lightboxPhoto.id}`}
-                  download={lightboxPhoto.filename || `${lightboxPhoto.id}.png`}
-                  className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold flex items-center gap-1.5"
-                >
-                  <Icon name="download" size={14} />
-                  <span>ดาวน์โหลดรูป</span>
-                </a>
-                <button
-                  onClick={() => setLightboxPhoto(null)}
-                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20"
-                >
-                  <Icon name="x" size={18} />
-                </button>
+              <div className="relative w-full flex items-center justify-center">
+                {hasMultiple && (
+                  <button
+                    type="button"
+                    onClick={() => goPhoto(-1)}
+                    className="absolute left-2 z-10 p-3 rounded-full bg-black/60 hover:bg-emerald-500 text-white border border-white/15 backdrop-blur-md transition shadow-lg"
+                    title="รูปก่อนหน้า"
+                  >
+                    <Icon name="chevronLeft" size={22} />
+                  </button>
+                )}
+                <img
+                  src={`/api/photos?id=${lightboxPhoto.id}`}
+                  alt={lightboxPhoto.filename}
+                  className="max-h-[80vh] w-auto object-contain rounded-2xl border border-white/10 shadow-2xl"
+                />
+                {hasMultiple && (
+                  <button
+                    type="button"
+                    onClick={() => goPhoto(1)}
+                    className="absolute right-2 z-10 p-3 rounded-full bg-black/60 hover:bg-emerald-500 text-white border border-white/15 backdrop-blur-md transition shadow-lg"
+                    title="รูปถัดไป"
+                  >
+                    <Icon name="chevronRight" size={22} />
+                  </button>
+                )}
               </div>
             </div>
-            <img
-              src={`/api/photos?id=${lightboxPhoto.id}`}
-              alt={lightboxPhoto.filename}
-              className="max-h-[80vh] w-auto object-contain rounded-2xl border border-white/10 shadow-2xl"
-            />
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -2540,7 +2559,14 @@ function AssetDetailModal({
           {/* TAB 1: DETAILS */}
           {detailTab === 'details' && (
             <div className="space-y-5">
-              {activePhoto ? (
+              {activePhoto ? (() => {
+                const activeIdx = Math.max(0, photos.findIndex(p => p.id === activePhoto.id));
+                const stepPhoto = (e, delta) => {
+                  e.stopPropagation();
+                  const next = photos[(activeIdx + delta + photos.length) % photos.length];
+                  setSelectedPhotoId(next.id);
+                };
+                return (
                 <div className="space-y-2.5">
                   <div
                     onClick={() => onOpenLightbox(activePhoto)}
@@ -2551,6 +2577,29 @@ function AssetDetailModal({
                       alt={asset.description}
                       className="w-full h-full object-contain"
                     />
+                    {photos.length > 1 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={e => stepPhoto(e, -1)}
+                          className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-emerald-500 text-white border border-white/15 backdrop-blur-md transition shadow-lg"
+                          title="รูปก่อนหน้า"
+                        >
+                          <Icon name="chevronLeft" size={18} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={e => stepPhoto(e, 1)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-emerald-500 text-white border border-white/15 backdrop-blur-md transition shadow-lg"
+                          title="รูปถัดไป"
+                        >
+                          <Icon name="chevronRight" size={18} />
+                        </button>
+                        <span className="absolute top-3 right-3 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-black/65 text-white backdrop-blur-md">
+                          {activeIdx + 1} / {photos.length}
+                        </span>
+                      </>
+                    )}
                     <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/80 to-transparent flex items-center justify-between text-white text-xs">
                       <span>{activePhoto.kind === 'room' ? 'รูปสถานที่' : 'รูปทรัพย์สิน'} · {activePhoto.filename}</span>
                       <span className="flex items-center gap-1 font-semibold text-emerald-300">
@@ -2575,7 +2624,8 @@ function AssetDetailModal({
                     </div>
                   )}
                 </div>
-              ) : (
+                );
+              })() : (
                 <div className="p-6 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 flex items-center justify-between">
                   <div className="flex items-center gap-3 text-slate-400 text-xs">
                     <Icon name="camera" size={22} />
@@ -3740,52 +3790,6 @@ function AuthAndSettingsModal({
           </div>
         )}
 
-        {/* Google OAuth Configuration */}
-        <form onSubmit={handleSaveSettings} className="space-y-3 pt-4 border-t border-slate-200 dark:border-white/10">
-          <div className="font-bold text-slate-400 uppercase tracking-wider text-[11px]">
-            ตั้งค่า Google OAuth 2.0 & หน้าล็อกอินก่อนเข้าเว็บ
-          </div>
-          <label className="block space-y-1">
-            <span className="font-semibold">Google Client ID (สำหรับปุ่ม Sign in with Google ทางการ)</span>
-            <input
-              type="text"
-              value={clientId}
-              onChange={e => setClientId(e.target.value)}
-              placeholder="เช่น 1234567890-abcdefg.apps.googleusercontent.com"
-              className="w-full p-2.5 rounded-xl font-mono bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-white/10"
-            />
-          </label>
-
-          <label className="flex items-center gap-2.5 cursor-pointer pt-1">
-            <input
-              type="checkbox"
-              checked={requireAuth}
-              onChange={e => setRequireAuth(e.target.checked)}
-              className="w-4 h-4 rounded accent-emerald-500"
-            />
-            <span className="font-semibold">บังคับต้องล็อกอินด้วย Google ก่อนเข้าดูข้อมูล (Require Login Gate)</span>
-          </label>
-
-          <div className="flex justify-end">
-            <button type="submit" className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold">
-              บันทึกการตั้งค่าความปลอดภัย
-            </button>
-          </div>
-        </form>
-
-        {/* Storage Architecture Info */}
-        <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 space-y-1.5">
-          <div className="font-extrabold text-emerald-400 flex items-center gap-2">
-            <Icon name="database" size={16} />
-            <span>สถาปัตยกรรมฐานข้อมูล: JSON File + Photo Folder</span>
-          </div>
-          <p className="text-slate-400 leading-relaxed">
-            • ข้อมูลทรัพย์สินทั้งหมด ({assetsCount} รายการ) และประวัติการทำงานถูกจัดเก็บในไฟล์{' '}
-            <code className="font-mono text-emerald-300">data/db.json</code>
-            <br />• รูปภาพทั้งหมด ({photosCount} รูป) ถูกจัดเก็บในโฟลเดอร์{' '}
-            <code className="font-mono text-emerald-300">data/photos/</code>
-          </p>
-        </div>
       </div>
     </div>
   );
