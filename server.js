@@ -73,6 +73,13 @@ function loadDb() {
   } catch (e) {
     console.error('Error loading db.json:', e.message);
   }
+  try {
+    const bundled = require('./data/db.json');
+    if (bundled && Array.isArray(bundled.assets)) {
+      dbCache = JSON.parse(JSON.stringify(bundled));
+      return dbCache;
+    }
+  } catch (e) {}
   dbCache = {
     version: 2,
     exportedAt: new Date().toISOString(),
