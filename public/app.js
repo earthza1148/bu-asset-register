@@ -622,6 +622,8 @@ function App() {
     return (
       <GoogleLoginGate
         googleClientId={authConfig.googleClientId}
+        theme={theme}
+        onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
         onLoggedIn={u => {
           setUser(u);
           fetchAllData();
@@ -3845,13 +3847,42 @@ function AuthAndSettingsModal({
 }
 
 // ============================================================================
-// GOOGLE LOGIN GATE (Shown when requireAuth is true and user is logged out)
+// GOOGLE LOGIN GATE (Split Layout: LOGO Left, Login Right + Deletable Accounts)
 // ============================================================================
-function GoogleLoginGate({ googleClientId, onLoggedIn }) {
+function GoogleLoginGate({ googleClientId, theme, onToggleTheme, onLoggedIn }) {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
+  const [savedAccounts, setSavedAccounts] = useState(() => {
+    try {
+      const raw = localStorage.getItem('bu_saved_google_accounts');
+      if (raw !== null) return JSON.parse(raw);
+    } catch (e) {}
+    return [
+      { name: 'PUNYANUCH.B', email: 'earth7137@gmail.com' },
+      { name: 'SARAWUT', email: 'sarawut.th@bu.ac.th' }
+    ];
+  });
   const googleBtnRef = useRef(null);
+
+  const persistAccounts = list => {
+    setSavedAccounts(list);
+    try {
+      localStorage.setItem('bu_saved_google_accounts', JSON.stringify(list));
+    } catch (e) {}
+  };
+
+  const rememberAccount = (accName, accEmail) => {
+    const cleanEmail = String(accEmail || '').trim().toLowerCase();
+    if (!cleanEmail) return;
+    const filtered = savedAccounts.filter(a => a.email.toLowerCase() !== cleanEmail);
+    persistAccounts([{ name: accName, email: accEmail.trim() }, ...filtered]);
+  };
+
+  const removeSavedAccount = targetEmail => {
+    const filtered = savedAccounts.filter(a => a.email.toLowerCase() !== targetEmail.toLowerCase());
+    persistAccounts(filtered);
+  };
 
   useEffect(() => {
     if (googleClientId && window.google && window.google.accounts && googleBtnRef.current) {
@@ -3865,18 +3896,22 @@ function GoogleLoginGate({ googleClientId, onLoggedIn }) {
               body: JSON.stringify({ credential: response.credential })
             });
             const data = await res.json();
-            if (res.ok && data.user) onLoggedIn(data.user);
-            else setError(data.error || 'เข้าสู่ระบบด้วย Google ไม่สำเร็จ');
+            if (res.ok && data.user) {
+              rememberAccount(data.user.name, data.user.email);
+              onLoggedIn(data.user);
+            } else {
+              setError(data.error || 'เข้าสู่ระบบด้วย Google ไม่สำเร็จ');
+            }
           }
         });
         window.google.accounts.id.renderButton(googleBtnRef.current, {
-          theme: 'filled_blue',
+          theme: theme === 'dark' ? 'filled_black' : 'outline',
           size: 'large',
           width: 340
         });
       } catch (e) {}
     }
-  }, [googleClientId]);
+  }, [googleClientId, theme]);
 
   const handleLogin = async (loginName, loginEmail) => {
     setError('');
@@ -3886,73 +3921,178 @@ function GoogleLoginGate({ googleClientId, onLoggedIn }) {
       body: JSON.stringify({ name: loginName, email: loginEmail })
     });
     const data = await res.json();
-    if (res.ok && data.user) onLoggedIn(data.user);
-    else setError(data.error || 'เข้าสู่ระบบไม่สำเร็จ');
+    if (res.ok && data.user) {
+      rememberAccount(data.user.name, data.user.email);
+      onLoggedIn(data.user);
+    } else {
+      setError(data.error || 'เข้าสู่ระบบไม่สำเร็จ');
+    }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative">
+    <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 relative">
       <div className="ambient-mesh" />
-      <div className="glass-panel rounded-3xl max-w-md w-full p-8 space-y-6 relative z-10 text-center animate-fade-in">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 via-teal-500 to-indigo-600 flex items-center justify-center text-white mx-auto shadow-xl shadow-emerald-500/30">
-          <Icon name="box" size={32} />
-        </div>
-        <div>
-          <h1 className="text-2xl font-extrabold">BU ASSET REGISTER</h1>
-          <p className="text-xs text-slate-400 mt-1">กรุณาเข้าสู่ระบบด้วยบัญชี Google เพื่อใช้งานระบบทะเบียนทรัพย์สิน</p>
-        </div>
 
-        {error && (
-          <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs font-semibold">
-            {error}
+      {/* Theme Toggle */}
+      {onToggleTheme && (
+        <button
+          onClick={onToggleTheme}
+          className="fixed top-5 right-5 z-20 p-2.5 rounded-xl glass-panel text-slate-600 dark:text-slate-300 hover:text-emerald-500 transition"
+          title="สลับธีมมืด/สว่าง"
+        >
+          <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
+        </button>
+      )}
+
+      {/* Split Card: LOGO Left | LOGIN Right */}
+      <div className="glass-panel rounded-3xl max-w-5xl w-full overflow-hidden relative z-10 grid grid-cols-1 lg:grid-cols-12 shadow-2xl animate-fade-in">
+        {/* LEFT PANEL: LOGO & BRANDING */}
+        <div className="lg:col-span-5 p-8 sm:p-10 bg-gradient-to-br from-emerald-600/20 via-teal-600/15 to-indigo-600/25 border-b lg:border-b-0 lg:border-r border-slate-200/70 dark:border-white/10 flex flex-col justify-between relative overflow-hidden">
+          <div className="absolute -top-20 -left-20 w-56 h-56 rounded-full bg-emerald-500/20 blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-24 -right-20 w-64 h-64 rounded-full bg-indigo-500/20 blur-3xl pointer-events-none" />
+
+          <div className="relative z-10 space-y-6">
+            <div className="inline-flex items-center gap-3.5">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 via-teal-500 to-indigo-600 flex items-center justify-center text-white shadow-xl shadow-emerald-500/30">
+                <Icon name="box" size={32} />
+              </div>
+              <div>
+                <div className="flex items-center gap-1">
+                  <span className="font-black tracking-tight text-2xl text-slate-900 dark:text-white">BU ASSET</span>
+                  <span className="text-brand-gold font-black text-3xl leading-none">.</span>
+                </div>
+                <span className="text-[11px] font-bold tracking-[0.22em] uppercase text-emerald-600 dark:text-emerald-400">
+                  SMART ASSET OS v2.0
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-snug">
+                ระบบทะเบียนทรัพย์สิน
+                <br />
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-500 to-indigo-400">
+                  มหาวิทยาลัยกรุงเทพ
+                </span>
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                บริหารจัดการ ตรวจเช็คหน้างาน และติดตามสถานะการติดรหัสทรัพย์สินทั้งหมดในที่เดียว
+              </p>
+            </div>
+
+            <div className="space-y-2.5 pt-2 text-xs">
+              <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/60 dark:bg-slate-900/50 border border-slate-200/70 dark:border-white/10">
+                <span className="p-2 rounded-xl bg-emerald-500/15 text-emerald-500">
+                  <Icon name="database" size={16} />
+                </span>
+                <div>
+                  <div className="font-bold text-slate-900 dark:text-white">ข้อมูลทรัพย์สินครบ 381 รายการ</div>
+                  <div className="text-slate-500 dark:text-slate-400">พร้อมประวัติการทำงาน 755 รายการ</div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/60 dark:bg-slate-900/50 border border-slate-200/70 dark:border-white/10">
+                <span className="p-2 rounded-xl bg-indigo-500/15 text-indigo-400">
+                  <Icon name="image" size={16} />
+                </span>
+                <div>
+                  <div className="font-bold text-slate-900 dark:text-white">คลังรูปภาพหน้างาน 200 รูป</div>
+                  <div className="text-slate-500 dark:text-slate-400">จัดเก็บเป็นสัดส่วน พร้อม QR Code สติกเกอร์</div>
+                </div>
+              </div>
+            </div>
           </div>
-        )}
 
-        <div className="space-y-3 text-left text-xs">
-          {googleClientId && (
-            <div className="pb-2">
-              <div ref={googleBtnRef} className="flex justify-center" />
+          <div className="relative z-10 pt-8 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+            <span>BANGKOK UNIVERSITY</span>
+            <span className="font-mono">JSON + PHOTO FOLDER</span>
+          </div>
+        </div>
+
+        {/* RIGHT PANEL: GOOGLE LOGIN & SAVED ACCOUNTS */}
+        <div className="lg:col-span-7 p-8 sm:p-10 flex flex-col justify-center space-y-5 text-xs">
+          <div>
+            <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">เข้าสู่ระบบด้วย Google</h2>
+            <p className="text-slate-500 dark:text-slate-400 mt-1">
+              เลือกบัญชีที่เคยเข้าใช้งาน หรือลงชื่อเข้าใช้ด้วยบัญชี Google ใหม่
+            </p>
+          </div>
+
+          {error && (
+            <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 font-semibold">
+              {error}
             </div>
           )}
 
-          <button
-            onClick={() => handleLogin('PUNYANUCH.B', 'earth7137@gmail.com')}
-            className="w-full p-3.5 rounded-2xl bg-white dark:bg-slate-900 hover:border-emerald-500 border border-slate-200 dark:border-white/10 flex items-center justify-between transition shadow-sm"
-          >
-            <span className="flex items-center gap-3">
-              <svg className="w-5 h-5" viewBox="0 0 24 24">
-                <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z" />
-                <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z" />
-                <path fill="#FBBC05" d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z" />
-                <path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.8C3.5 21.4 7.4 24 12 24z" />
-              </svg>
-              <span>
-                <strong className="block text-slate-900 dark:text-white">Continue with Google (PUNYANUCH.B)</strong>
-                <span className="text-slate-400">earth7137@gmail.com</span>
-              </span>
-            </span>
-            <Icon name="chevronRight" size={16} />
-          </button>
+          {googleClientId && (
+            <div className="pb-1">
+              <div ref={googleBtnRef} className="flex justify-start" />
+            </div>
+          )}
 
-          <button
-            onClick={() => handleLogin('SARAWUT', 'sarawut.th@bu.ac.th')}
-            className="w-full p-3.5 rounded-2xl bg-white dark:bg-slate-900 hover:border-emerald-500 border border-slate-200 dark:border-white/10 flex items-center justify-between transition shadow-sm"
-          >
-            <span className="flex items-center gap-3">
-              <svg className="w-5 h-5" viewBox="0 0 24 24">
-                <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z" />
-                <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z" />
-                <path fill="#FBBC05" d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z" />
-                <path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.8C3.5 21.4 7.4 24 12 24z" />
-              </svg>
-              <span>
-                <strong className="block text-slate-900 dark:text-white">Continue with Google (SARAWUT)</strong>
-                <span className="text-slate-400">sarawut.th@bu.ac.th</span>
-              </span>
-            </span>
-            <Icon name="chevronRight" size={16} />
-          </button>
+          {/* Saved / Previously Logged-in Accounts with Delete Button */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              <span>บัญชีที่เคยเข้าสู่ระบบ ({savedAccounts.length})</span>
+              {savedAccounts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => persistAccounts([])}
+                  className="text-rose-400 hover:text-rose-300 font-semibold normal-case"
+                >
+                  ล้างรายชื่อทั้งหมด
+                </button>
+              )}
+            </div>
 
+            {savedAccounts.length === 0 ? (
+              <div className="p-4 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-center text-slate-400">
+                ยังไม่มีบัญชีที่บันทึกไว้ กรุณากรอกอีเมล Google ด้านล่างเพื่อเข้าสู่ระบบ
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {savedAccounts.map(acc => (
+                  <div
+                    key={acc.email}
+                    onClick={() => handleLogin(acc.name, acc.email)}
+                    className="group w-full p-3 rounded-2xl bg-white dark:bg-slate-900/90 hover:border-emerald-500 border border-slate-200 dark:border-white/10 flex items-center justify-between gap-2 cursor-pointer transition shadow-sm"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+                        <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z" />
+                        <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z" />
+                        <path fill="#FBBC05" d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z" />
+                        <path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.8C3.5 21.4 7.4 24 12 24z" />
+                      </svg>
+                      <div className="min-w-0">
+                        <strong className="block text-slate-900 dark:text-white truncate">
+                          Continue with Google ({acc.name})
+                        </strong>
+                        <span className="text-slate-400 truncate block">{acc.email}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={e => {
+                          e.stopPropagation();
+                          removeSavedAccount(acc.email);
+                        }}
+                        className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-500/15 transition"
+                        title={`ลบบัญชี ${acc.email} ออกจากรายการ`}
+                      >
+                        <Icon name="trash" size={15} />
+                      </button>
+                      <Icon name="chevronRight" size={16} className="text-slate-400 group-hover:text-emerald-500" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Login with Another Google Account */}
           <form
             onSubmit={e => {
               e.preventDefault();
@@ -3960,29 +4100,34 @@ function GoogleLoginGate({ googleClientId, onLoggedIn }) {
                 handleLogin(name.trim() || email.split('@')[0].toUpperCase(), email.trim());
               }
             }}
-            className="pt-3 border-t border-slate-200 dark:border-white/10 space-y-2"
+            className="pt-4 border-t border-slate-200 dark:border-white/10 space-y-2.5"
           >
-            <div className="text-[11px] font-semibold text-slate-400">หรือเข้าสู่ระบบด้วยอีเมล Google อื่นในทีม:</div>
-            <input
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="ชื่อผู้ใช้งาน (เช่น SOMCHAI)"
-              className="w-full p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-white/10"
-            />
-            <div className="flex gap-2">
+            <div className="text-[11px] font-bold text-slate-400">
+              เข้าสู่ระบบด้วยบัญชี Google อื่น:
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input
+                type="text"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="ชื่อผู้ใช้งาน (เช่น SOMCHAI)"
+                className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-white/10 focus:outline-none focus:border-emerald-500"
+              />
               <input
                 type="email"
                 required
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="อีเมล Google (@gmail.com / @bu.ac.th)"
-                className="flex-1 p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-white/10"
+                className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-white/10 focus:outline-none focus:border-emerald-500"
               />
-              <button type="submit" className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-bold">
-                เข้าสู่ระบบ
-              </button>
             </div>
+            <button
+              type="submit"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold shadow-lg shadow-emerald-500/20 transition"
+            >
+              เข้าสู่ระบบด้วยบัญชีนี้
+            </button>
           </form>
         </div>
       </div>
