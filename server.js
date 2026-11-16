@@ -29,7 +29,7 @@ function loadConfig() {
   if (configCache) return configCache;
   const defaults = {
     googleClientId: process.env.GOOGLE_CLIENT_ID || '',
-    requireAuth: false, // Set true to force login gate on initial load, or toggle in UI
+    requireAuth: process.env.REQUIRE_AUTH !== 'false', // Require Google login by default
     allowedDomains: [], // e.g. ['bu.ac.th', 'gmail.com']
     aiProvider: process.env.GEMINI_API_KEY ? 'gemini' : (process.env.GROQ_API_KEY ? 'groq' : 'local'),
     geminiApiKey: process.env.GEMINI_API_KEY || '',
@@ -677,6 +677,16 @@ async function requestHandler(req, res) {
         const body = await readJsonBody(req);
         const updated = saveConfig(body);
         return sendJson(res, 200, { ok: true, config: updated });
+      }
+    }
+
+    // Enforce Google Login on protected API routes when requireAuth is enabled
+    const protectedApiPaths = ['/api/data', '/api/photos', '/api/import', '/api/restore', '/api/assistant'];
+    if (protectedApiPaths.includes(pathname)) {
+      const cfg = loadConfig();
+      const currentUser = getCurrentUser(req);
+      if (cfg.requireAuth && !currentUser) {
+        return sendJson(res, 401, { error: 'กรุณาเข้าสู่ระบบด้วย Google ก่อนใช้งาน' });
       }
     }
 

@@ -263,12 +263,12 @@ function App() {
           requireAuth: !!sJson.requireAuth,
           storageMode: sJson.storageMode || 'json-folder'
         });
-        if (sJson.user) setUser(sJson.user);
+        setUser(sJson.user || null);
       }
       if (dataRes.ok) {
         const dJson = await dataRes.json();
         setAssets(dJson.assets || []);
-        if (dJson.user && !user) setUser(dJson.user);
+        if (dJson.user) setUser(dJson.user);
       }
     } catch (err) {
       showMessage('ไม่สามารถโหลดข้อมูลจากเซิร์ฟเวอร์ได้', true);
@@ -875,6 +875,20 @@ function App() {
                 />
               </svg>
               <span className="hidden lg:inline">{user?.name || 'Google'}</span>
+            </button>
+
+            <button
+              onClick={async () => {
+                await fetch('/api/auth/logout', { method: 'POST' });
+                setUser(null);
+                setAssets([]);
+                setSelectedAssetId(null);
+                showMessage('ออกจากระบบเรียบร้อยแล้ว');
+              }}
+              className="px-3 py-1.5 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white border border-rose-500/20 text-xs font-semibold transition"
+              title="ออกจากระบบ"
+            >
+              ออกจากระบบ
             </button>
           </div>
         </header>
@@ -1841,9 +1855,14 @@ function App() {
           onClose={() => setShowAuthModal(false)}
           onUserChanged={u => {
             setUser(u);
-            fetchAllData();
-            if (u) showMessage(`เข้าสู่ระบบในชื่อ ${u.name} (${u.email})`);
-            else showMessage('ออกจากระบบเรียบร้อยแล้ว');
+            if (!u) {
+              setAssets([]);
+              setSelectedAssetId(null);
+              showMessage('ออกจากระบบเรียบร้อยแล้ว');
+            } else {
+              fetchAllData();
+              showMessage(`เข้าสู่ระบบในชื่อ ${u.name} (${u.email})`);
+            }
           }}
           onConfigSaved={cfg => {
             setAuthConfig(prev => ({ ...prev, ...cfg }));
@@ -3829,8 +3848,9 @@ function AuthAndSettingsModal({
 // GOOGLE LOGIN GATE (Shown when requireAuth is true and user is logged out)
 // ============================================================================
 function GoogleLoginGate({ googleClientId, onLoggedIn }) {
-  const [email, setEmail] = useState('earth7137@gmail.com');
-  const [name, setName] = useState('PUNYANUCH.B');
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
   const googleBtnRef = useRef(null);
 
   useEffect(() => {
@@ -3846,18 +3866,20 @@ function GoogleLoginGate({ googleClientId, onLoggedIn }) {
             });
             const data = await res.json();
             if (res.ok && data.user) onLoggedIn(data.user);
+            else setError(data.error || 'เข้าสู่ระบบด้วย Google ไม่สำเร็จ');
           }
         });
         window.google.accounts.id.renderButton(googleBtnRef.current, {
           theme: 'filled_blue',
           size: 'large',
-          width: 320
+          width: 340
         });
       } catch (e) {}
     }
   }, [googleClientId]);
 
   const handleLogin = async (loginName, loginEmail) => {
+    setError('');
     const res = await fetch('/api/auth/google', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3865,6 +3887,7 @@ function GoogleLoginGate({ googleClientId, onLoggedIn }) {
     });
     const data = await res.json();
     if (res.ok && data.user) onLoggedIn(data.user);
+    else setError(data.error || 'เข้าสู่ระบบไม่สำเร็จ');
   };
 
   return (
@@ -3876,32 +3899,32 @@ function GoogleLoginGate({ googleClientId, onLoggedIn }) {
         </div>
         <div>
           <h1 className="text-2xl font-extrabold">BU ASSET REGISTER</h1>
-          <p className="text-xs text-slate-400 mt-1">ระบบบริหารจัดการและตรวจเช็คทรัพย์สิน มหาวิทยาลัยกรุงเทพ</p>
+          <p className="text-xs text-slate-400 mt-1">กรุณาเข้าสู่ระบบด้วยบัญชี Google เพื่อใช้งานระบบทะเบียนทรัพย์สิน</p>
         </div>
 
+        {error && (
+          <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs font-semibold">
+            {error}
+          </div>
+        )}
+
         <div className="space-y-3 text-left text-xs">
+          {googleClientId && (
+            <div className="pb-2">
+              <div ref={googleBtnRef} className="flex justify-center" />
+            </div>
+          )}
+
           <button
             onClick={() => handleLogin('PUNYANUCH.B', 'earth7137@gmail.com')}
             className="w-full p-3.5 rounded-2xl bg-white dark:bg-slate-900 hover:border-emerald-500 border border-slate-200 dark:border-white/10 flex items-center justify-between transition shadow-sm"
           >
             <span className="flex items-center gap-3">
               <svg className="w-5 h-5" viewBox="0 0 24 24">
-                <path
-                  fill="#EA4335"
-                  d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z"
-                />
-                <path
-                  fill="#4285F4"
-                  d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.8C3.5 21.4 7.4 24 12 24z"
-                />
+                <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z" />
+                <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z" />
+                <path fill="#FBBC05" d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z" />
+                <path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.8C3.5 21.4 7.4 24 12 24z" />
               </svg>
               <span>
                 <strong className="block text-slate-900 dark:text-white">Continue with Google (PUNYANUCH.B)</strong>
@@ -3917,10 +3940,10 @@ function GoogleLoginGate({ googleClientId, onLoggedIn }) {
           >
             <span className="flex items-center gap-3">
               <svg className="w-5 h-5" viewBox="0 0 24 24">
-                <path
-                  fill="#4285F4"
-                  d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z"
-                />
+                <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z" />
+                <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z" />
+                <path fill="#FBBC05" d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z" />
+                <path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.8C3.5 21.4 7.4 24 12 24z" />
               </svg>
               <span>
                 <strong className="block text-slate-900 dark:text-white">Continue with Google (SARAWUT)</strong>
@@ -3930,7 +3953,37 @@ function GoogleLoginGate({ googleClientId, onLoggedIn }) {
             <Icon name="chevronRight" size={16} />
           </button>
 
-          {googleClientId && <div ref={googleBtnRef} className="pt-2 flex justify-center" />}
+          <form
+            onSubmit={e => {
+              e.preventDefault();
+              if (email.trim()) {
+                handleLogin(name.trim() || email.split('@')[0].toUpperCase(), email.trim());
+              }
+            }}
+            className="pt-3 border-t border-slate-200 dark:border-white/10 space-y-2"
+          >
+            <div className="text-[11px] font-semibold text-slate-400">หรือเข้าสู่ระบบด้วยอีเมล Google อื่นในทีม:</div>
+            <input
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="ชื่อผู้ใช้งาน (เช่น SOMCHAI)"
+              className="w-full p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-white/10"
+            />
+            <div className="flex gap-2">
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="อีเมล Google (@gmail.com / @bu.ac.th)"
+                className="flex-1 p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-white/10"
+              />
+              <button type="submit" className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-bold">
+                เข้าสู่ระบบ
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     </div>
