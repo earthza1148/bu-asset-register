@@ -3730,70 +3730,15 @@ function AuthAndSettingsModal({
           )}
         </div>
 
-        {/* Quick Google Account Switcher */}
-        <div className="space-y-2.5">
-          <div className="font-bold text-slate-400 uppercase tracking-wider text-[11px]">
-            สลับบัญชี / เข้าสู่ระบบด้วย Google ทันที (Quick Google Workspace Sign-In)
+        {/* Official Google Sign-In Switcher (when Google Client ID is configured) */}
+        {clientId && (
+          <div className="space-y-2">
+            <div className="font-bold text-slate-400 uppercase tracking-wider text-[11px]">
+              สลับบัญชี Google (Google OAuth 2.0)
+            </div>
+            <div ref={googleBtnRef} className="pt-1 flex justify-start" />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            <button
-              onClick={() => quickGoogleLogin('PUNYANUCH.B', 'earth7137@gmail.com')}
-              className="p-3 rounded-xl bg-slate-100 dark:bg-slate-900 hover:border-emerald-500/50 border border-slate-200 dark:border-white/10 flex items-center gap-3 text-left transition"
-            >
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center">
-                PB
-              </div>
-              <div className="min-w-0">
-                <div className="font-bold truncate">PUNYANUCH.B</div>
-                <div className="text-[11px] text-slate-400 truncate">earth7137@gmail.com</div>
-              </div>
-            </button>
-
-            <button
-              onClick={() => quickGoogleLogin('SARAWUT', 'sarawut.th@bu.ac.th')}
-              className="p-3 rounded-xl bg-slate-100 dark:bg-slate-900 hover:border-emerald-500/50 border border-slate-200 dark:border-white/10 flex items-center gap-3 text-left transition"
-            >
-              <div className="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 font-bold flex items-center justify-center">
-                SR
-              </div>
-              <div className="min-w-0">
-                <div className="font-bold truncate">SARAWUT</div>
-                <div className="text-[11px] text-slate-400 truncate">sarawut.th@bu.ac.th</div>
-              </div>
-            </button>
-          </div>
-
-          {/* Custom Google Email Sign-In */}
-          <div className="flex flex-wrap gap-2 pt-1">
-            <input
-              type="text"
-              value={customName}
-              onChange={e => setCustomName(e.target.value)}
-              placeholder="ชื่อผู้ใช้ (เช่น EARTH)"
-              className="flex-1 min-w-[120px] p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-white/10"
-            />
-            <input
-              type="email"
-              value={customEmail}
-              onChange={e => setCustomEmail(e.target.value)}
-              placeholder="อีเมล Google (เช่น user@gmail.com)"
-              className="flex-1 min-w-[180px] p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-white/10"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                if (customEmail.trim()) {
-                  quickGoogleLogin(customName.trim() || customEmail.split('@')[0].toUpperCase(), customEmail.trim());
-                }
-              }}
-              className="px-4 py-2.5 rounded-xl bg-emerald-500 text-white font-bold"
-            >
-              เข้าสู่ระบบ
-            </button>
-          </div>
-
-          {clientId && <div ref={googleBtnRef} className="pt-2 flex justify-center" />}
-        </div>
+        )}
 
         {/* Google OAuth Configuration */}
         <form onSubmit={handleSaveSettings} className="space-y-3 pt-4 border-t border-slate-200 dark:border-white/10">
@@ -3852,18 +3797,22 @@ function AuthAndSettingsModal({
 function GoogleLoginGate({ googleClientId, theme, onToggleTheme, onLoggedIn }) {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
+  const [activeClientId, setActiveClientId] = useState(googleClientId || '');
+  const [clientIdInput, setClientIdInput] = useState('');
+  const [showSetup, setShowSetup] = useState(false);
   const [error, setError] = useState('');
   const [savedAccounts, setSavedAccounts] = useState(() => {
     try {
       const raw = localStorage.getItem('bu_saved_google_accounts');
       if (raw !== null) return JSON.parse(raw);
     } catch (e) {}
-    return [
-      { name: 'PUNYANUCH.B', email: 'earth7137@gmail.com' },
-      { name: 'SARAWUT', email: 'sarawut.th@bu.ac.th' }
-    ];
+    return [];
   });
   const googleBtnRef = useRef(null);
+
+  useEffect(() => {
+    if (googleClientId) setActiveClientId(googleClientId);
+  }, [googleClientId]);
 
   const persistAccounts = list => {
     setSavedAccounts(list);
@@ -3885,10 +3834,11 @@ function GoogleLoginGate({ googleClientId, theme, onToggleTheme, onLoggedIn }) {
   };
 
   useEffect(() => {
-    if (googleClientId && window.google && window.google.accounts && googleBtnRef.current) {
+    if (activeClientId && window.google && window.google.accounts && googleBtnRef.current) {
       try {
+        googleBtnRef.current.innerHTML = '';
         window.google.accounts.id.initialize({
-          client_id: googleClientId,
+          client_id: activeClientId,
           callback: async response => {
             const res = await fetch('/api/auth/google', {
               method: 'POST',
@@ -3907,11 +3857,29 @@ function GoogleLoginGate({ googleClientId, theme, onToggleTheme, onLoggedIn }) {
         window.google.accounts.id.renderButton(googleBtnRef.current, {
           theme: theme === 'dark' ? 'filled_black' : 'outline',
           size: 'large',
-          width: 340
+          width: 360,
+          text: 'continue_with',
+          shape: 'pill'
         });
       } catch (e) {}
     }
-  }, [googleClientId, theme]);
+  }, [activeClientId, theme]);
+
+  const handleSaveClientId = async e => {
+    e.preventDefault();
+    const val = clientIdInput.trim();
+    if (!val) return;
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ googleClientId: val })
+    });
+    if (res.ok) {
+      setActiveClientId(val);
+      setShowSetup(false);
+      setError('');
+    }
+  };
 
   const handleLogin = async (loginName, loginEmail) => {
     setError('');
@@ -4024,9 +3992,43 @@ function GoogleLoginGate({ googleClientId, theme, onToggleTheme, onLoggedIn }) {
             </div>
           )}
 
-          {googleClientId && (
-            <div className="pb-1">
+          {activeClientId ? (
+            <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 space-y-3">
+              <div className="text-[11px] font-bold text-emerald-500 uppercase tracking-wider">
+                Google OAuth 2.0 พร้อมใช้งาน
+              </div>
               <div ref={googleBtnRef} className="flex justify-start" />
+            </div>
+          ) : (
+            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-amber-500">ยังไม่ได้เชื่อมต่อ Google Client ID (OAuth 2.0)</span>
+                <button
+                  type="button"
+                  onClick={() => setShowSetup(!showSetup)}
+                  className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-400 font-bold hover:bg-amber-500 hover:text-white transition"
+                >
+                  {showSetup ? 'ซ่อน' : 'ตั้งค่าเลย'}
+                </button>
+              </div>
+              <p className="text-slate-400 leading-relaxed">
+                หากต้องการกดปุ่ม <strong>Sign in with Google</strong> จริงๆ ให้สร้าง OAuth Client ID จาก Google Cloud Console แล้วนำมาวางที่นี่ (หรือตั้งค่า <code className="font-mono">GOOGLE_CLIENT_ID</code> ใน Vercel)
+              </p>
+              {showSetup && (
+                <form onSubmit={handleSaveClientId} className="flex gap-2 pt-1">
+                  <input
+                    type="text"
+                    required
+                    value={clientIdInput}
+                    onChange={e => setClientIdInput(e.target.value)}
+                    placeholder="วาง Google Client ID (xxx.apps.googleusercontent.com)"
+                    className="flex-1 p-2 rounded-xl font-mono bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10"
+                  />
+                  <button type="submit" className="px-3.5 py-2 rounded-xl bg-emerald-500 text-white font-bold">
+                    บันทึก
+                  </button>
+                </form>
+              )}
             </div>
           )}
 

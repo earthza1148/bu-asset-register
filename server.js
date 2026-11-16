@@ -597,13 +597,14 @@ async function requestHandler(req, res) {
 
     if (pathname === '/api/auth/google' && req.method === 'POST') {
       const body = await readJsonBody(req);
+      const cfg = loadConfig();
       let user = null;
 
       if (body.credential) {
         // Real Google Identity Services ID Token
         user = await verifyGoogleIdToken(body.credential);
-      } else if (body.email) {
-        // Quick Google Workspace Account Sign-In
+      } else if (body.email && !cfg.googleClientId) {
+        // Fallback when Google Client ID is not yet configured
         user = {
           id: 'google-' + crypto.createHash('md5').update(body.email).digest('hex').slice(0, 12),
           name: body.name || body.email.split('@')[0].toUpperCase(),
@@ -611,10 +612,10 @@ async function requestHandler(req, res) {
           picture: body.picture || '',
           role: 'admin',
           provider: 'google',
-          verified: true
+          verified: false
         };
       } else {
-        return sendJson(res, 400, { error: 'กรุณาระบุข้อมูลบัญชี Google' });
+        return sendJson(res, 400, { error: 'กรุณาเข้าสู่ระบบด้วยปุ่ม Sign in with Google ทางการ' });
       }
 
       const token = crypto.randomBytes(24).toString('hex');
