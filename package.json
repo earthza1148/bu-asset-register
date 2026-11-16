@@ -1,0 +1,21 @@
+{
+  "name": "bu-asset-register-modern",
+  "version": "2.0.0",
+  "description": "BU Asset Register — Next-Gen Modern Asset Management System with JSON + Photo Folder Storage & Google Auth",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "asset-management",
+    "bangkok-university",
+    "bu-asset",
+    "inventory",
+    "google-auth"
+  ],
+  "license": "MIT"
+}

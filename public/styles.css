@@ -1,0 +1,118 @@
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.78);
+  --glass-border: rgba(15, 23, 42, 0.08);
+  --glass-shadow: 0 12px 32px -8px rgba(15, 23, 42, 0.07);
+}
+
+html.dark {
+  --glass-bg: rgba(15, 23, 42, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.55);
+}
+
+body {
+  font-family: 'Manrope', 'Noto Sans Thai', sans-serif;
+  overflow-x: hidden;
+}
+
+/* Futuristic Ambient Mesh Background */
+.ambient-mesh {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 12% 15%, rgba(16, 185, 129, 0.11), transparent 36%),
+    radial-gradient(circle at 85% 12%, rgba(99, 102, 241, 0.11), transparent 38%),
+    radial-gradient(circle at 50% 88%, rgba(213, 183, 121, 0.08), transparent 42%);
+}
+
+html.dark .ambient-mesh {
+  background:
+    radial-gradient(circle at 12% 15%, rgba(16, 185, 129, 0.14), transparent 38%),
+    radial-gradient(circle at 85% 12%, rgba(99, 102, 241, 0.14), transparent 40%),
+    radial-gradient(circle at 55% 88%, rgba(213, 183, 121, 0.09), transparent 45%);
+}
+
+/* Glass Surface Utility */
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html.dark .glass-card {
+  background: rgba(17, 25, 44, 0.68);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 20px 38px -12px rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+/* Animations */
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeInScale 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Print Sticker Mode */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-qr-card,
+  #printable-qr-card * {
+    visibility: visible;
+  }
+  #printable-qr-card {
+    position: fixed;
+    left: 20px;
+    top: 20px;
+    width: 340px;
+    border: 2px solid #000 !important;
+    background: #fff !important;
+    color: #000 !important;
+    box-shadow: none !important;
+  }
+}
