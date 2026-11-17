@@ -21,7 +21,8 @@ function formatThaiDate(isoStr, withTime = false) {
   try {
     const d = new Date(isoStr.length === 10 ? isoStr + 'T00:00:00+07:00' : isoStr);
     if (isNaN(d.getTime())) return isoStr;
-    return new Intl.DateTimeFormat('th-TH', {
+    return new Intl.DateTimeFormat('th-TH-u-ca-gregory', {
+      calendar: 'gregory',
       dateStyle: 'medium',
       ...(withTime ? { timeStyle: 'short' } : {}),
       timeZone: 'Asia/Bangkok'
@@ -1334,8 +1335,8 @@ function App() {
                       className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-white/10 text-xs"
                     >
                       <option value="all">เลือกปี</option>
-                      <option value="2026">2569 (2026)</option>
-                      <option value="2025">2568 (2025)</option>
+                      <option value="2026">2026</option>
+                      <option value="2025">2025</option>
                     </select>
                   )}
 
