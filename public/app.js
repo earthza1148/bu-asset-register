@@ -181,7 +181,8 @@ function StatusBadge({ status, deletedAt }) {
 function App() {
   const [assets, setAssets] = useState([]);
   const [user, setUser] = useState(null);
-  const [authConfig, setAuthConfig] = useState({ googleClientId: '', requireAuth: false, storageMode: 'json-folder' });
+  const [authConfig, setAuthConfig] = useState({ googleClientId: '', requireAuth: false, storageMode: 'json-folder', isReadOnlyFs: false, hasCloudDb: false });
+  const [dismissedCloudBanner, setDismissedCloudBanner] = useState(() => localStorage.getItem('bu_dismissed_cloud_banner') === '1');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
@@ -250,24 +251,55 @@ function App() {
     }, 4500);
   }, []);
 
+  const applyLocalFallbackMutations = useCallback((serverAssets, readOnlyNoCloud) => {
+    if (!readOnlyNoCloud) return serverAssets;
+    try {
+      const raw = localStorage.getItem('bu_asset_local_mutations_v1');
+      if (!raw) return serverAssets;
+      const mut = JSON.parse(raw);
+      const deletes = new Set(mut.deletes || []);
+      const upserts = mut.upserts || {};
+      const seen = new Set();
+      const merged = [];
+      for (const a of serverAssets) {
+        if (deletes.has(a.id)) continue;
+        seen.add(a.id);
+        merged.push(upserts[a.id] ? { ...a, ...upserts[a.id] } : a);
+      }
+      for (const [id, item] of Object.entries(upserts)) {
+        if (!seen.has(id) && !deletes.has(id)) {
+          merged.unshift(item);
+        }
+      }
+      return merged;
+    } catch {
+      return serverAssets;
+    }
+  }, []);
+
   const fetchAllData = useCallback(async () => {
     try {
       const [sessionRes, dataRes] = await Promise.all([
         fetch('/api/auth/session', { cache: 'no-store' }),
         fetch('/api/data', { cache: 'no-store' })
       ]);
+      let readOnlyNoCloud = false;
       if (sessionRes.ok) {
         const sJson = await sessionRes.json();
+        readOnlyNoCloud = !!sJson.isReadOnlyFs && !sJson.hasCloudDb;
         setAuthConfig({
           googleClientId: sJson.googleClientId || '',
           requireAuth: !!sJson.requireAuth,
-          storageMode: sJson.storageMode || 'json-folder'
+          storageMode: sJson.storageMode || 'json-folder',
+          isReadOnlyFs: !!sJson.isReadOnlyFs,
+          hasCloudDb: !!sJson.hasCloudDb
         });
         setUser(sJson.user || null);
       }
       if (dataRes.ok) {
         const dJson = await dataRes.json();
-        setAssets(dJson.assets || []);
+        const mergedAssets = applyLocalFallbackMutations(dJson.assets || [], readOnlyNoCloud);
+        setAssets(mergedAssets);
         if (dJson.user) setUser(dJson.user);
       }
     } catch (err) {
@@ -275,7 +307,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [showMessage, user]);
+  }, [showMessage, applyLocalFallbackMutations]);
 
   useEffect(() => {
     fetchAllData();
@@ -469,9 +501,10 @@ function App() {
       if (!res.ok) throw new Error(json.error || 'เกิดข้อผิดพลาด');
 
       const targetId = json.id || asset?.id;
+      const uploadedPhotos = [];
       if ((action === 'create' || action === 'update') && targetId && Array.isArray(pendingPhotos) && pendingPhotos.length > 0) {
         for (const p of pendingPhotos) {
-          await fetch('/api/photos', {
+          const pRes = await fetch('/api/photos', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -481,7 +514,41 @@ function App() {
               dataUrl: p.dataUrl
             })
           });
+          if (pRes.ok) {
+            try {
+              const pJson = await pRes.json();
+              if (pJson.photo) uploadedPhotos.push(pJson.photo);
+            } catch {}
+          }
         }
+      }
+
+      if (authConfig.isReadOnlyFs && !authConfig.hasCloudDb && targetId) {
+        try {
+          const raw = localStorage.getItem('bu_asset_local_mutations_v1');
+          const mut = raw ? JSON.parse(raw) : { upserts: {}, deletes: [] };
+          mut.upserts = mut.upserts || {};
+          mut.deletes = mut.deletes || [];
+          const nowIso = new Date().toISOString();
+          if (action === 'permanent_delete') {
+            delete mut.upserts[targetId];
+            if (!mut.deletes.includes(targetId)) mut.deletes.push(targetId);
+          } else {
+            const base = mut.upserts[targetId] || asset || { id: targetId, photos: [], createdAt: nowIso };
+            if (action === 'create') {
+              mut.upserts[targetId] = { ...base, ...payload, id: targetId, photos: [...(base.photos || []), ...uploadedPhotos], createdAt: nowIso, updatedAt: nowIso, version: 1 };
+            } else if (action === 'update') {
+              mut.upserts[targetId] = { ...base, ...payload, id: targetId, photos: [...(base.photos || []), ...uploadedPhotos], updatedAt: nowIso, version: (base.version || 1) + 1 };
+            } else if (action === 'check') {
+              mut.upserts[targetId] = { ...base, checked: true, checkedAt: nowIso, updatedAt: nowIso };
+            } else if (action === 'delete') {
+              mut.upserts[targetId] = { ...base, deletedAt: nowIso, updatedAt: nowIso };
+            } else if (action === 'restore') {
+              mut.upserts[targetId] = { ...base, deletedAt: null, updatedAt: nowIso };
+            }
+          }
+          localStorage.setItem('bu_asset_local_mutations_v1', JSON.stringify(mut));
+        } catch {}
       }
 
       await fetchAllData();
@@ -902,6 +969,28 @@ function App() {
             </button>
           </div>
         </header>
+
+        {/* Cloud DB Notice on Vercel Read-Only Filesystem */}
+        {authConfig.isReadOnlyFs && !authConfig.hasCloudDb && !dismissedCloudBanner && (
+          <div className="mx-4 lg:mx-6 mt-3 px-4 py-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <Icon name="alert" size={16} className="shrink-0 text-amber-400" />
+              <span>
+                โหมด Vercel Serverless: ข้อมูลที่แก้ไขจะถูกจำไว้ในเบราว์เซอร์นี้ชั่วคราว — หากต้องการให้บันทึกและซิงก์ข้อมูลร่วมกันทุกคนในทีม ให้เชื่อมต่อ <b>Upstash Redis / Vercel KV</b> ในหน้า Vercel Project Marketplace
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                localStorage.setItem('bu_dismissed_cloud_banner', '1');
+                setDismissedCloudBanner(true);
+              }}
+              className="shrink-0 p-1 rounded-lg hover:bg-amber-500/20 text-amber-300 transition"
+              title="ซ่อนข้อความนี้"
+            >
+              <Icon name="x" size={14} />
+            </button>
+          </div>
+        )}
 
         {/* Toast Notification */}
         {toast && (
@@ -2514,7 +2603,9 @@ function AssetDetailModal({
 
   return (
     <div
-      onClick={onClose}
+      onMouseDown={e => {
+        if (e.target === e.currentTarget) onClose();
+      }}
       className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm flex justify-end"
     >
       <div
@@ -3073,7 +3164,7 @@ function AssetEditorModal({ asset, busy, user, uniquePeople, onClose, onSave }) 
   };
 
   return (
-    <div onClick={onClose} className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div
         onClick={e => e.stopPropagation()}
         className="glass-panel rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-fade-in bg-white dark:bg-[#0d1322]"
@@ -3433,7 +3524,7 @@ function ExcelImportModal({ onClose, onImported }) {
   const importableCount = preview ? preview.groups.length - (preview.skippedIndexes?.length || 0) : 0;
 
   return (
-    <div onClick={onClose} className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div
         onClick={e => e.stopPropagation()}
         className="glass-panel rounded-2xl max-w-3xl w-full max-h-[88vh] flex flex-col overflow-hidden bg-white dark:bg-[#0d1322] animate-fade-in"
@@ -3566,7 +3657,7 @@ function ExportBackupModal({ filteredCount, totalCount, onClose, onExportCsv, on
   };
 
   return (
-    <div onClick={onClose} className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div
         onClick={e => e.stopPropagation()}
         className="glass-panel rounded-2xl max-w-md w-full p-6 space-y-4 bg-white dark:bg-[#0d1322] animate-fade-in"
@@ -3652,7 +3743,12 @@ function AiAssistantDrawer({ onClose, onOpenAsset }) {
   };
 
   return (
-    <div onClick={onClose} className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex justify-end">
+    <div
+      onMouseDown={e => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex justify-end"
+    >
       <div
         onClick={e => e.stopPropagation()}
         className="w-full max-w-lg bg-white dark:bg-[#0b101d] h-full flex flex-col justify-between shadow-2xl border-l border-slate-200 dark:border-white/10 animate-fade-in"
@@ -3867,7 +3963,7 @@ function AuthAndSettingsModal({
   };
 
   return (
-    <div onClick={onClose} className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div
         onClick={e => e.stopPropagation()}
         className="glass-panel rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-6 bg-white dark:bg-[#0d1322] animate-fade-in text-xs"
@@ -4294,7 +4390,12 @@ function CommandPaletteModal({ assets, onClose, onSelectAsset, onNavigate, onAct
   }, [assets, q]);
 
   return (
-    <div onClick={onClose} className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-start justify-center pt-20 p-4">
+    <div
+      onMouseDown={e => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-start justify-center pt-20 p-4"
+    >
       <div
         onClick={e => e.stopPropagation()}
         className="glass-panel rounded-2xl max-w-xl w-full overflow-hidden bg-white dark:bg-[#0d1322] shadow-2xl animate-fade-in"

@@ -21,9 +21,33 @@ try {
 // In-memory state cache
 let dbCache = null;
 let configCache = null;
-let isReadOnlyFs = false;
+let isReadOnlyFs = !!process.env.VERCEL;
 const memoryPhotos = new Map(); // Fallback for serverless read-only environments
 const activeSessions = new Map();
+
+const REDIS_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '';
+const REDIS_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '';
+const hasCloudDb = !!(REDIS_URL && REDIS_TOKEN);
+
+async function redisCommand(commandArray) {
+  if (!hasCloudDb) return null;
+  try {
+    const res = await fetch(REDIS_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${REDIS_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(commandArray)
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.result ?? null;
+  } catch (e) {
+    console.error('Redis error:', e.message);
+    return null;
+  }
+}
 
 function loadConfig() {
   if (configCache) return configCache;
@@ -118,6 +142,32 @@ function saveDb() {
     } catch (err) {
       isReadOnlyFs = true;
     }
+  }
+}
+
+async function loadDbAsync() {
+  if (hasCloudDb) {
+    const raw = await redisCommand(['GET', 'bu_asset_db']);
+    if (raw) {
+      try {
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (parsed && Array.isArray(parsed.assets)) {
+          dbCache = parsed;
+          return dbCache;
+        }
+      } catch (e) {}
+    }
+    const seeded = loadDb();
+    await redisCommand(['SET', 'bu_asset_db', JSON.stringify(seeded)]);
+    return seeded;
+  }
+  return loadDb();
+}
+
+async function saveDbAsync() {
+  saveDb();
+  if (hasCloudDb && dbCache) {
+    await redisCommand(['SET', 'bu_asset_db', JSON.stringify(dbCache)]);
   }
 }
 
@@ -590,8 +640,9 @@ async function requestHandler(req, res) {
         user,
         googleClientId: cfg.googleClientId,
         requireAuth: cfg.requireAuth,
-        storageMode: cfg.storageMode,
-        isReadOnlyFs
+        storageMode: hasCloudDb ? 'cloud-redis' : cfg.storageMode,
+        hasCloudDb,
+        isReadOnlyFs: isReadOnlyFs && !hasCloudDb
       });
     }
 
@@ -693,7 +744,7 @@ async function requestHandler(req, res) {
 
     // 2. Main Data & History Endpoint (/api/data)
     if (pathname === '/api/data') {
-      const db = loadDb();
+      const db = await loadDbAsync();
       const user = getCurrentUser(req) || { name: 'PUNYANUCH.B', email: 'earth7137@gmail.com' };
 
       if (req.method === 'GET') {
@@ -770,7 +821,7 @@ async function requestHandler(req, res) {
           };
           db.assets.unshift(newAsset);
           addEvent('เพิ่มทรัพย์สิน', newAsset, user);
-          saveDb();
+          await saveDbAsync();
           return sendJson(res, 200, { ok: true, id: newAsset.id, asset: newAsset });
         }
 
@@ -801,7 +852,7 @@ async function requestHandler(req, res) {
           }
 
           addEvent('แก้ไขข้อมูล', asset, user);
-          saveDb();
+          await saveDbAsync();
           return sendJson(res, 200, { ok: true, id: asset.id, asset });
         }
 
@@ -812,7 +863,7 @@ async function requestHandler(req, res) {
           asset.updatedAt = now;
           asset.version = (asset.version || 1) + 1;
           addEvent('ตรวจเช็คหน้างาน', asset, user);
-          saveDb();
+          await saveDbAsync();
           return sendJson(res, 200, { ok: true, id: asset.id, asset });
         }
 
@@ -823,7 +874,7 @@ async function requestHandler(req, res) {
           asset.updatedAt = now;
           asset.version = (asset.version || 1) + 1;
           addEvent('ย้ายเข้าถังขยะ', asset, user);
-          saveDb();
+          await saveDbAsync();
           return sendJson(res, 200, { ok: true, id: asset.id });
         }
 
@@ -834,7 +885,7 @@ async function requestHandler(req, res) {
           asset.updatedAt = now;
           asset.version = (asset.version || 1) + 1;
           addEvent('กู้คืนทรัพย์สิน', asset, user);
-          saveDb();
+          await saveDbAsync();
           return sendJson(res, 200, { ok: true, id: asset.id, asset });
         }
 
@@ -851,7 +902,7 @@ async function requestHandler(req, res) {
             }
           }
           addEvent('ลบทรัพย์สินถาวร', removed, user);
-          saveDb();
+          await saveDbAsync();
           return sendJson(res, 200, { ok: true, id });
         }
 
@@ -868,7 +919,7 @@ async function requestHandler(req, res) {
               updatedCount++;
             }
           }
-          saveDb();
+          await saveDbAsync();
           return sendJson(res, 200, { ok: true, count: updatedCount });
         }
 
@@ -878,7 +929,7 @@ async function requestHandler(req, res) {
 
     // 3. Photos Endpoint (/api/photos)
     if (pathname === '/api/photos') {
-      const db = loadDb();
+      const db = await loadDbAsync();
       const user = getCurrentUser(req) || { name: 'PUNYANUCH.B', email: 'earth7137@gmail.com' };
 
       if (req.method === 'GET') {
@@ -927,6 +978,23 @@ async function requestHandler(req, res) {
             return res.end(buf);
           }
         } catch (e) {}
+        if (hasCloudDb) {
+          const cloudPhotoRaw = await redisCommand(['GET', `bu_asset_photo:${photoId}`]);
+          if (cloudPhotoRaw) {
+            try {
+              const pObj = typeof cloudPhotoRaw === 'string' ? JSON.parse(cloudPhotoRaw) : cloudPhotoRaw;
+              if (pObj && pObj.data) {
+                const buf = Buffer.from(pObj.data, 'base64');
+                res.writeHead(200, {
+                  'Content-Type': pObj.contentType || 'image/jpeg',
+                  'Content-Length': buf.length,
+                  'Cache-Control': 'public, max-age=31536000, immutable'
+                });
+                return res.end(buf);
+              }
+            } catch (e) {}
+          }
+        }
         res.writeHead(404);
         return res.end('Photo not found');
       }
@@ -982,6 +1050,13 @@ async function requestHandler(req, res) {
           isReadOnlyFs = true;
           memoryPhotos.set(photoId, { contentType: mimeType, buffer: fileBuffer });
         }
+        if (hasCloudDb) {
+          await redisCommand([
+            'SET',
+            `bu_asset_photo:${photoId}`,
+            JSON.stringify({ contentType: mimeType, data: fileBuffer.toString('base64') })
+          ]);
+        }
 
         const photoRecord = {
           id: photoId,
@@ -999,7 +1074,7 @@ async function requestHandler(req, res) {
           filename,
           kind
         });
-        saveDb();
+        await saveDbAsync();
 
         return sendJson(res, 200, { ok: true, photo: photoRecord });
       }
@@ -1028,10 +1103,13 @@ async function requestHandler(req, res) {
           }
         }
         memoryPhotos.delete(photoId);
+        if (hasCloudDb) {
+          await redisCommand(['DEL', `bu_asset_photo:${photoId}`]);
+        }
 
         if (targetAsset) {
           addEvent('ลบรูปภาพ', targetAsset, user, { photoId, filename: removedPhoto?.filename });
-          saveDb();
+          await saveDbAsync();
         }
         return sendJson(res, 200, { ok: true, id: photoId });
       }
@@ -1039,7 +1117,7 @@ async function requestHandler(req, res) {
 
     // 4. Excel Import Endpoint (/api/import)
     if (pathname === '/api/import' && req.method === 'POST') {
-      const db = loadDb();
+      const db = await loadDbAsync();
       const user = getCurrentUser(req) || { name: 'PUNYANUCH.B', email: 'earth7137@gmail.com' };
       const body = await readJsonBody(req);
       const { action, filename, rows } = body;
@@ -1081,7 +1159,7 @@ async function requestHandler(req, res) {
             importedQuantity: quantity,
             skippedRecords: skippedSet.size
           });
-          saveDb();
+          await saveDbAsync();
         }
 
         return sendJson(res, 200, {
@@ -1097,7 +1175,7 @@ async function requestHandler(req, res) {
 
     // 5. Restore Full Backup JSON (/api/restore)
     if (pathname === '/api/restore' && req.method === 'POST') {
-      const db = loadDb();
+      const db = await loadDbAsync();
       const user = getCurrentUser(req) || { name: 'PUNYANUCH.B', email: 'earth7137@gmail.com' };
       const body = await readJsonBody(req);
       if (!Array.isArray(body.assets)) {
@@ -1110,7 +1188,7 @@ async function requestHandler(req, res) {
       addEvent('กู้คืนฐานข้อมูลจากไฟล์ Backup JSON', null, user, {
         assetsRestored: db.assets.length
       });
-      saveDb();
+      await saveDbAsync();
       return sendJson(res, 200, { ok: true, count: db.assets.length });
     }
 
@@ -1120,7 +1198,7 @@ async function requestHandler(req, res) {
         return sendJson(res, 200, { configured: true });
       }
       if (req.method === 'POST') {
-        const db = loadDb();
+        const db = await loadDbAsync();
         const body = await readJsonBody(req);
         const answer = runLocalAssistant(body.question, body.preset, db);
         return sendJson(res, 200, answer);
