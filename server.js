@@ -152,7 +152,17 @@ async function loadDbAsync() {
       try {
         const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
         if (parsed && Array.isArray(parsed.assets)) {
+          let patched = false;
+          for (const a of parsed.assets) {
+            if (a.receivedDate === '1969-10-27' && String(a.id || '').startsWith('format-import-v1:')) {
+              a.receivedDate = '2026-10-27';
+              patched = true;
+            }
+          }
           dbCache = parsed;
+          if (patched) {
+            await redisCommand(['SET', 'bu_asset_db', JSON.stringify(dbCache)]);
+          }
           return dbCache;
         }
       } catch (e) {}
